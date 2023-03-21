@@ -27,15 +27,19 @@ function(set_custom_stdlib_and_sanitizers target add_apple_asan)
     endif()
 
     if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-        target_compile_options(${target} PRIVATE -stdlib=libc++)
-        target_link_options(${target} PRIVATE -stdlib=libc++)
+        target_compile_options(${target} PRIVATE -stdlib=libstdc++)
+        target_link_options(${target} PRIVATE -stdlib=libstdc++)
     endif()
 
     if(APPLE)
         # first check Apple since Apple is also a kind of Unix
-        if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND add_apple_asan MATCHES true)
-            target_compile_options(${target} PRIVATE "$<${debug_mode}:-fsanitize=address,undefined>")
-            target_link_options(${target} PRIVATE "$<${debug_mode}:-fsanitize=address,undefined>")
+        if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+            target_compile_options(${target} PRIVATE -stdlib=libc++)
+            target_link_options(${target} PRIVATE -stdlib=libc++)
+            if(add_apple_asan MATCHES true)
+                target_compile_options(${target} PRIVATE "$<${debug_mode}:-fsanitize=address,undefined>")
+                target_link_options(${target} PRIVATE "$<${debug_mode}:-fsanitize=address,undefined>")
+            endif()
         endif()
     elseif(UNIX)
         if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
@@ -59,7 +63,7 @@ endfunction()
 ###############################################################################
 
 # external dependencies with FetchContent
-#include(FetchContent)
+include(FetchContent)
 #
 # NOTE: Also update env vars used for caching in .github/workflows/cmake.yml
 #FetchContent_Declare(
@@ -70,6 +74,13 @@ endfunction()
 #)
 #
 #FetchContent_MakeAvailable(SomeLib)
+
+FetchContent_Declare(
+        cpp-terminal
+        GIT_REPOSITORY https://github.com/jupyter-xeus/cpp-terminal.git
+        GIT_TAG        a33121fc10f6051f2183613fcc6acbffe1b5a271 # master @ 2023-03-21
+)
+FetchContent_MakeAvailable(cpp-terminal)
 
 ###############################################################################
 
@@ -109,14 +120,15 @@ endif()
 
 # sanitizers
 set_custom_stdlib_and_sanitizers(${PROJECT_NAME} true)
+set_custom_stdlib_and_sanitizers(cpp-terminal true)
 
 ###############################################################################
 
 # use SYSTEM so clang-tidy does not report warnings from these directories
 #target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ext/<SomeHppLib>/include)
-#target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${<SomeLib>_SOURCE_DIR}/include)
-#target_link_directories(${PROJECT_NAME} PRIVATE ${<SomeLib>_BINARY_DIR}/lib)
-#target_link_libraries(${PROJECT_NAME} <SomeLib>)
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${cpp-terminal_SOURCE_DIR}/include)
+target_link_directories(${PROJECT_NAME} PRIVATE ${cpp-terminal_BINARY_DIR}/lib)
+target_link_libraries(${PROJECT_NAME} cpp-terminal)
 
 ###############################################################################
 

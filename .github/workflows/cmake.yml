@@ -106,7 +106,7 @@ jobs:
       contents: write
 
     env:
-      CC: ${{ matrix.c }}
+      # CC: ${{ matrix.c }}
       CXX: ${{ matrix.cxx }}
 
     strategy:
@@ -191,28 +191,25 @@ jobs:
           # echo "ZIP_NAME=$(echo "${GITHUB_REPOSITORY}_${{ env.BUILD_TYPE }}_${{ matrix.os }}_${{ matrix.cxx }}" | sed -E 's|.+/(.+)|\1|')" >> ${GITHUB_ENV}
 
       # Common Linux dependencies
-      # - name: Install Linux Dependencies
-      #   if: runner.os == 'Linux'
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install ...
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install tmux
 
       - name: Install libc++ (Linux Clang 12)
         if: runner.os == 'Linux' && matrix.runs_asan == true
         run: |
-          sudo apt-get update
           sudo apt-get install --no-install-recommends libc++-12-dev libc++abi-12-dev libunwind-12-dev
 
       - name: Install ninja and libc++ (Linux Clang 13)
         if: runner.os == 'Linux' && matrix.runs_msan == true
         run: |
-          sudo apt-get update
           sudo apt-get install --no-install-recommends ninja-build libc++-13-dev libc++abi-13-dev
 
       - name: Install valgrind
         if: runner.os == 'Linux' && matrix.runs_valgrind == true
         run: |
-          sudo apt-get update
           sudo apt-get install --no-install-recommends valgrind
 
       # temp workaround, there is a bug in xcode linker 14.0.1; as of now, 14.1 is in beta
@@ -231,14 +228,14 @@ jobs:
           key: tools-clang-stdlib-msan
 
       # Uncomment when using external dependencies so they will be cached
-      # - name: Cache deps
-      #   uses: actions/cache@v3
-      #   id: cache-deps
-      #   # make the key depend on the dependency version
-      #   with:
-      #     path: |
-      #       ${{ env.BUILD_DIR }}/_deps
-      #     key: cache-${{ matrix.cmake_generator }}-${{ matrix.os }}-${{ matrix.cxx }}-${{ env.BUILD_TYPE }}
+      - name: Cache deps
+        uses: actions/cache@v3
+        id: cache-deps
+        # make the key depend on the dependency version
+        with:
+          path: |
+            ${{ env.BUILD_DIR }}/_deps
+          key: cache-${{ matrix.cmake_generator }}-${{ matrix.os }}-${{ matrix.cxx }}-${{ env.BUILD_TYPE }}
 
       # NOTE: GH Actions does not allow updating the cache yet
       # Using the workaround found here: https://github.com/actions/cache/issues/171
@@ -339,22 +336,43 @@ jobs:
             -DCMAKE_BUILD_WITH_INSTALL_RPATH=true
           cmake --build . -j6 -- cxx cxxabi
 
+      - name: Make scripts executable
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x scripts/*
+          # chmod +x scripts/run_sanitizers.sh scripts/run_valgrind.sh
+
       - name: Sanitizers
         # run one sanitizer for each env to avoid building extra binaries on one env;
         # memory on Linux clang, address on macOS clang
-        if: startsWith(matrix.cxx, 'clang++')
+        if: runner.os == 'Linux' && (matrix.runs_asan == true || matrix.runs_msan == true)
+        # continue-on-error: true
         # detect_leaks is not supported on macOS
-        # env:
-        # ASAN_OPTIONS: detect_leaks=1
+        shell: 'script -q -e -c "bash {0}"'
+        env:
+          ASAN_OPTIONS: halt_on_error=0
         run: |
-          cat "${INPUT_FILENAME}" | tr -d '\r' | ./${{ env.ZIP_NAME }}/"${EXECUTABLE_NAME}"
+          tmux -C new-session -c "${GITHUB_WORKSPACE}" -s session -d "bash"
+          tmux -C send -t session "cd ${GITHUB_WORKSPACE}" Enter
+          tmux -C send -t session "script -f --log-out $(pwd)/logs.txt" Enter
+          tty || true
+          tmux -C send -t session "script -q -e -c ${GITHUB_WORKSPACE}/${ZIP_NAME}/${EXECUTABLE_NAME}" Enter
+          tmux -C send-keys -t session "q" "z" Enter
 
-      - name: Sanitizers (Windows MSVC)
-        # run one sanitizer for each OS to avoid building extra binaries
-        if: matrix.cxx == 'cl'
-        continue-on-error: true
-        run: |
-          cat "${INPUT_FILENAME}" | ./${{ env.ZIP_NAME }}/"${EXECUTABLE_NAME}".exe
+          tmux send -t session "exit" Enter # exit script
+          tmux -C capture-pane -t session -S - -E - -p | cat -n
+          tmux send -t session "exit" Enter # exit tmux
+          tmux kill-session -t session || true
+
+          # echo -e "\n\nProgram output\n\n"
+          ls -la
+
+      # - name: Sanitizers (Windows MSVC)
+      #   # run one sanitizer for each OS to avoid building extra binaries
+      #   if: matrix.cxx == 'cl'
+      #   continue-on-error: true
+      #   run: |
+      #     cat "${INPUT_FILENAME}" | ./${{ env.ZIP_NAME }}/"${EXECUTABLE_NAME}".exe
 
       # Application Verifier does not work with sanitizers, need separate executable
       #- name: Application Verifier (Windows MSVC)
@@ -363,13 +381,11 @@ jobs:
       #  run: cat "${INPUT_FILENAME}" | appverif //verify ./${{ env.ZIP_NAME }}/"${EXECUTABLE_NAME}".exe
 
       - name: Valgrind
+        shell: 'script -q -e -c "bash {0}"'
         if: runner.os == 'Linux' && matrix.runs_valgrind == true
         run: |
           # remove --show-leak-kinds=all (and --track-origins=yes) if there are many leaks in external libs
-          cat "${INPUT_FILENAME}" | tr -d '\r' | valgrind \
-              --leak-check=full --show-leak-kinds=all --track-origins=yes \
-              --error-exitcode=1 \
-              ./${{ env.ZIP_NAME }}/"${EXECUTABLE_NAME}"
+          ./scripts/run_valgrind.sh || true
 
       - name: Set Tag Name
         if: startsWith(github.ref, 'refs/tags/')

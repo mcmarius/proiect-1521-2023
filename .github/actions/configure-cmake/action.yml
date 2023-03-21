@@ -21,6 +21,8 @@ runs:
             -DCMAKE_INSTALL_PREFIX=${GITHUB_WORKSPACE}/artifacts \
             -DGITHUB_ACTIONS=${GITHUB_ACTIONS} \
             -DWARNINGS_AS_ERRORS=${{ inputs.warnings_as_errors }} \
+            -DCPPTERMINAL_BUILD_EXAMPLES=OFF \
+            -DCPPTERMINAL_ENABLE_TESTING=OFF \
             ${{ inputs.custom_flags }}
       shell: bash
 
