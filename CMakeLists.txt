@@ -91,7 +91,7 @@ FetchContent_MakeAvailable(cpp-terminal)
 ###############################################################################
 
 # NOTE: update executable name in .github/workflows/cmake.yml:25 when changing name here
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} main.cpp Profesor.cpp Profesor.h Facultate.cpp Facultate.h)
 
 ###############################################################################
 
